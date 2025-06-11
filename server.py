@@ -17,7 +17,6 @@ geoip_reader = geoip2.database.Reader(GEOIP_DB_PATH)
 traffic_data = []
 source_countries = {}
 destination_countries = {}
-
 processed_packets = set()
 
 TRAFFIC_DATA_FILE = 'traffic_data.json'
@@ -25,41 +24,27 @@ SOURCE_COUNTRIES_FILE = 'source_countries.json'
 DESTINATION_COUNTRIES_FILE = 'destination_countries.json'
 
 PORT_TO_PROTOCOL = {
-    20: "FTP (Data Transfer)",
-    21: "FTP (Control)",
-    22: "SSH",
-    23: "Telnet",
-    25: "SMTP",
-    53: "DNS",
-    80: "HTTP",
-    110: "POP3",
-    143: "IMAP",
-    443: "HTTPS",
-    3306: "MySQL",
-    1433: "MSSQL",
-    6379: "Redis",
-    5432: "PostgreSQL",
-    1521: "Oracle DB",
-    3389: "RDP",
+    20: "FTP (Data Transfer)", 21: "FTP (Control)", 22: "SSH", 23: "Telnet",
+    25: "SMTP", 53: "DNS", 80: "HTTP", 110: "POP3", 143: "IMAP",
+    443: "HTTPS", 3306: "MySQL", 1433: "MSSQL", 6379: "Redis",
+    5432: "PostgreSQL", 1521: "Oracle DB", 3389: "RDP",
 }
 
 def get_global_ip():
     try:
         response = requests.get('https://api.ipify.org?format=json')
-        return response.json()['ip']
+        return response.json().get('ip')
     except requests.RequestException:
         return None
 
 global_ip = get_global_ip()
 
 def is_local_ip(ip):
-        
-	local_patterns = [
+    local_patterns = [
         r"^10\.", r"^172\.(1[6-9]|2[0-9]|3[0-1])\.", r"^192\.168\.", r"^127\.",
         r"^::1$", r"^fc00:", r"^fe80:"
     ]
-    
-	return any(re.match(pattern, ip) for pattern in local_patterns)
+    return any(re.match(pattern, ip) for pattern in local_patterns)
 
 def get_location(ip_address):
     try:
@@ -81,7 +66,7 @@ def get_location(ip_address):
         }
 
 def get_protocol(port):
-    	return PORT_TO_PROTOCOL.get(port, f"Unknown (Port {port})")
+    return PORT_TO_PROTOCOL.get(port, f"Unknown (Port {port})")
 
 def update_source_countries(source):
     country = source.get("country", "Unknown")
@@ -102,11 +87,12 @@ def process_packet(packet):
         if is_local_ip(dest_ip):
             return
 
-        if is_local_ip(src_ip):
+        if is_local_ip(src_ip) and global_ip:
             src_ip = global_ip
+        elif not src_ip:
+            return
 
         packet_key = f"{src_ip}:{packet[TCP].sport}->{dest_ip}:{dest_port}"
-
         if packet_key in processed_packets:
             return
         processed_packets.add(packet_key)
@@ -132,10 +118,8 @@ def process_packet(packet):
 def save_data():
     with open(TRAFFIC_DATA_FILE, 'w') as f:
         json.dump(traffic_data, f, indent=4)
-
     with open(SOURCE_COUNTRIES_FILE, 'w') as f:
         json.dump(source_countries, f, indent=4)
-
     with open(DESTINATION_COUNTRIES_FILE, 'w') as f:
         json.dump(destination_countries, f, indent=4)
 
@@ -152,7 +136,10 @@ def load_data():
             destination_countries = json.load(f)
 
 def start_packet_sniffer():
-    sniff(filter=f"tcp and not src host {global_ip}", prn=process_packet, store=False)
+    filter_str = "tcp"
+    if global_ip:
+        filter_str += f" and not src host {global_ip}"
+    sniff(filter=filter_str, prn=process_packet, store=False)
 
 def save_periodically():
     while True:
