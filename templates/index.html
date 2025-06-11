@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Карта трафика</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <style>
+    body, html {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: none;
+      color: #0f0;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 12px;
+    }
+
+    h1, h2 {
+      text-align: center;
+      color: #0f0;
+      margin: 10px 0;
+    }
+
+    #map {
+      height: 100%;
+      width: 100%;
+    }
+
+    #stats {
+      padding: 10px;
+      color: #0f0;
+      max-height: 30vh;
+      overflow-y: auto;
+      display: flex;
+      justify-content: space-around;
+      background: rgba(0, 0, 0, 0.2);
+      position: absolute;
+      bottom: 0;
+      width: 100%;
+      z-index: 9999;
+    }
+
+    .stats-table {
+      width: 45%;
+      border-collapse: collapse;
+      color: #0f0;
+      background: transparent;
+    }
+
+    .stats-table, th, td {
+      border: 1px solid #0f0;
+    }
+
+    th, td {
+      padding: 5px;
+      text-align: left;
+    }
+
+    img {
+      display: block;
+      margin: 0 auto;
+      width: 20px;
+    }
+
+    .leaflet-tooltip {
+      color: #fff;
+      background: rgba(0, 0, 0, 0.7);
+    }
+
+    .neon-line {
+      filter: drop-shadow(0 0 3px cyan) drop-shadow(0 0 5px cyan);
+    }
+
+    .neon-circle {
+      filter: drop-shadow(0 0 3px #00ff00) drop-shadow(0 0 3px #00ff00);
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="stats">
+    <div>
+      <h2>Destination (Country)</h2>
+      <table class="stats-table" id="destinationStats">
+        <thead>
+          <tr>
+            <th>Country</th>
+            <th>Flag</th>
+            <th>Number of requests</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div>
+      <h2>Analitic</h2>
+      <table class="stats-table" id="attackStats">
+        <thead>
+          <tr>
+            <th>Timestamp</th>
+            <th>Destination IP</th>
+            <th>Destination GEO</th>
+            <th>Protocol</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const map = L.map('map').setView([20, 0], 2);
+
+    L.tileLayer('https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png', {
+      maxZoom: 19,
+    }).addTo(map);
+
+    const drawnCircles = {};
+    const drawnLines = {};
+
+    function isLocalIP(ip) {
+      const localPatterns = [
+        /^10\./, /^172\.(1[6-9]|2[0-9]|3[0-1])\./, /^192\.168\./, /^127\./,
+        /^::1$/, /^fc00:/, /^fe80:/
+      ];
+      return localPatterns.some(pattern => pattern.test(ip));
+    }
+
+    function stringToColor(str) {
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) {
+        hash = str.charCodeAt(i) + ((hash << 5) - hash);
+      }
+      const color = (hash & 0x00FFFFFF).toString(16).toUpperCase();
+      return "#" + "00000".substring(0, 6 - color.length) + color;
+    }
+
+    function addExpandingCircle(lat, lon, text, agentIP) {
+      let radius = 50000;
+      const maxRadius = 500000;
+      const intervalTime = 15;
+      const color = stringToColor(agentIP);
+      const circleID = `${lat}-${lon}-${agentIP}`;
+
+      if (drawnCircles[circleID]) return;
+
+      const circle = L.circle([lat, lon], {
+        color: color,
+        weight: 2,
+        fillOpacity: 0,
+        radius: radius,
+        className: 'neon-circle',
+      }).addTo(map);
+
+      circle.bindPopup(text).openPopup();
+      drawnCircles[circleID] = circle;
+
+      const interval = setInterval(() => {
+        radius += 10000;
+        circle.setRadius(radius);
+        if (radius > maxRadius) {
+          map.removeLayer(circle);
+          clearInterval(interval);
+          delete drawnCircles[circleID];
+        }
+      }, intervalTime);
+    }
+
+    function addAnimatedLine(srcLat, srcLon, destLat, destLon) {
+      const lineID = `${srcLat}-${srcLon}-${destLat}-${destLon}`;
+
+      if (drawnLines[lineID]) return;
+
+      const totalFrames = 30;
+      let currentFrame = 0;
+
+      const polyline = L.polyline([], {
+        color: 'cyan',
+        weight: 4,
+        opacity: 1,
+        dashArray: '5, 10',
+        className: 'neon-line',
+      }).addTo(map);
+
+      drawnLines[lineID] = polyline;
+
+      const interval = setInterval(() => {
+        currentFrame++;
+        if (currentFrame > totalFrames) {
+          map.removeLayer(polyline);
+          clearInterval(interval);
+          delete drawnLines[lineID];
+          return;
+        }
+
+        const fraction = currentFrame / totalFrames;
+        const intermediateLat = srcLat + (destLat - srcLat) * fraction;
+        const intermediateLon = srcLon + (destLon - srcLon) * fraction;
+        const latLngs = polyline.getLatLngs();
+        latLngs.push([intermediateLat, intermediateLon]);
+
+        if (latLngs.length > 5) latLngs.shift();
+        polyline.setLatLngs(latLngs);
+      }, 30);
+    }
+
+    function getCountryCode(countryName) {
+      if (!countryName) return null;
+      const name = countryName.trim().toLowerCase();
+      const countryCodes = {
+         "afghanistan": "af",
+         "albania": "al",
+         "algeria": "dz",
+         "andorra": "ad",
+         "angola": "ao",
+         "argentina": "ar",
+         "armenia": "am",
+         "australia": "au",
+         "austria": "at",
+         "azerbaijan": "az",
+         "bangladesh": "bd",
+         "belarus": "by",
+         "belgium": "be",
+         "brazil": "br",
+         "bulgaria": "bg",
+         "canada": "ca",
+         "china": "cn",
+         "colombia": "co",
+         "croatia": "hr",
+         "czech republic": "cz",
+         "denmark": "dk",
+         "egypt": "eg",
+         "estonia": "ee",
+         "finland": "fi",
+         "france": "fr",
+         "germany": "de",
+         "greece": "gr",
+         "hungary": "hu",
+         "iceland": "is",
+         "india": "in",
+         "indonesia": "id",
+         "iran": "ir",
+         "iraq": "iq",
+         "ireland": "ie",
+         "israel": "il",
+         "italy": "it",
+         "japan": "jp",
+         "kazakhstan": "kz",
+         "kenya": "ke",
+         "latvia": "lv",
+         "lithuania": "lt",
+         "luxembourg": "lu",
+         "mexico": "mx",
+         "moldova": "md",
+         "mongolia": "mn",
+         "netherlands": "nl",
+         "new zealand": "nz",
+         "nigeria": "ng",
+         "north korea": "kp",
+         "norway": "no",
+         "pakistan": "pk",
+         "philippines": "ph",
+         "poland": "pl",
+         "portugal": "pt",
+         "romania": "ro",
+         "russia": "ru",
+         "russian federation": "ru",
+         "saudi arabia": "sa",
+         "serbia": "rs",
+         "singapore": "sg",
+         "slovakia": "sk",
+         "slovenia": "si",
+         "south africa": "za",
+         "south korea": "kr",
+         "spain": "es",
+         "sweden": "se",
+         "switzerland": "ch",
+         "syria": "sy",
+         "thailand": "th",
+         "turkey": "tr",
+         "ukraine": "ua",
+         "united arab emirates": "ae",
+         "united kingdom": "gb",
+         "united states": "us",
+         "united states of america": "us",
+         "uzbekistan": "uz",
+         "vietnam": "vn"
+       };
+
+       return countryCodes[name] || null;
+    }
+
+    function getFlagURL(countryCode) {
+      return `https://flagcdn.com/w320/${countryCode}.png`;
+    }
+
+    function updateAttackStats(data) {
+      const attackStatsTable = document.getElementById("attackStats").querySelector("tbody");
+      const timestampsToUpdate = [];
+
+      data.forEach(route => {
+        if (route.sent) return;
+
+        const src = route.source;
+        const dest = route.destination;
+
+        if (isLocalIP(src.ip) || isLocalIP(dest.ip)) return;
+
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${new Date(Date.now()).toLocaleString()}</td>
+          <td>${dest.ip}</td>
+          <td>${dest.country}</td>
+          <td>${route.type || "Unknown"}</td>
+        `;
+        attackStatsTable.appendChild(row);
+
+        timestampsToUpdate.push(route.timestamp);
+
+        if (src.latitude && src.longitude) {
+          addExpandingCircle(src.latitude, src.longitude, `${src.ip} (${src.city})`, src.ip);
+        }
+
+        if (dest.latitude && dest.longitude) {
+          addExpandingCircle(dest.latitude, dest.longitude, `${dest.ip} (${dest.city})`, dest.ip);
+        }
+
+        if (src.latitude && src.longitude && dest.latitude && dest.longitude) {
+          addAnimatedLine(src.latitude, src.longitude, dest.latitude, dest.longitude);
+        }
+      });
+
+      if (timestampsToUpdate.length > 0) {
+        markAsSent(timestampsToUpdate);
+      }
+    }
+
+    function clearAttackStatsTable() {
+      const attackStatsTable = document.getElementById("attackStats").querySelector("tbody");
+      attackStatsTable.innerHTML = "";
+    }
+
+    setInterval(clearAttackStatsTable, 60000);
+
+    function markAsSent(timestamps) {
+      fetch('/mark_sent', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ids: timestamps,
+        }),
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.updated_count > 0) {
+          console.log(`Обновлено ${data.updated_count} записей`);
+        }
+      })
+      .catch(err => console.error('Ошибка отправки данных:', err));
+    }
+
+    function updateDestinationStats() {
+      fetch('/destination_stats')
+        .then(response => response.json())
+        .then(data => {
+          const destinationStatsTable = document.getElementById("destinationStats").querySelector("tbody");
+          destinationStatsTable.innerHTML = "";
+          const destinations = data.destinations;
+
+          Object.entries(destinations).forEach(([country, count]) => {
+            const countryCode = getCountryCode(country);
+            const flagURL = countryCode ? getFlagURL(countryCode) : "https://flagcdn.com/w320/default.png";
+            destinationStatsTable.innerHTML += `
+              <tr>
+                <td>${country}</td>
+                <td><img src="${flagURL}" alt="Flag"></td>
+                <td>${count}</td>
+              </tr>
+            `;
+          });
+        })
+        .catch(err => console.error('Ошибка загрузки статистики по назначениям:', err));
+    }
+
+    function fetchAttackData() {
+      fetch('/traffic')
+        .then(response => response.json())
+        .then(data => {
+          updateAttackStats(data);
+        })
+        .catch(err => console.error('Ошибка загрузки данных о трафике:', err));
+    }
+
+    function updateData() {
+      fetchAttackData();
+      updateDestinationStats();
+    }
+
+    setInterval(updateData, 1000);
+    updateDestinationStats();
+  </script>
+</body>
+</html>
+
