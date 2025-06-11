@@ -11,11 +11,12 @@ This project is built with sticks for entertainment purposes only and does not i
 ## Setup and Usage
 
 1. Clone or download the repository.
-2. ```bash
-   git clone https://github.com/Priestttt/Traffic-Mapping.git
+ ```bash
+ git clone https://github.com/Priestttt/Traffic-Mapping.git
    cd Traffic-Mapping
    python -m pip install -r requirements.txt
    python3 server.py
+ ```
 4. Go to http://127.0.0.1/ in Browser
 
 ## Data Format
