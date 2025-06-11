@@ -10,7 +10,7 @@ This project is built with sticks for entertainment purposes only and does not i
 
 ## Setup and Usage
 
-1. Clone or download the repository.
+1. Clone the repository.
  ```bash
    git clone https://github.com/Priestttt/Traffic-Mapping.git
    cd Traffic-Mapping
